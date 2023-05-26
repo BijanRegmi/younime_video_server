@@ -22,7 +22,13 @@ interface Playlist {
 const getKeys = async (serverUrl: URL) => {
     const c = await fetch(serverUrl, {
         headers: { Referer: "https://gogoanime.cl/" },
-    }).then(_ => _.text())
+    })
+        .then(_ => _.text())
+        .catch(err => {
+            console.log("Failed to fetch", serverUrl)
+            console.error(err)
+        })
+    if (!c) return
     const document = new JSDOM(c).window.document
 
     const iv = document
@@ -53,56 +59,65 @@ const getKeys = async (serverUrl: URL) => {
 
 export async function videosFromUrl(baseUrl: string) {
     const basePage = await JSDOM.fromURL(baseUrl).then(c => c.window.document)
-    const embeddedString = basePage
-        .querySelector(".anime_muti_link>ul>li:nth-child(2)>a")
-        ?.getAttribute("data-video")
-        ?.slice(2)
-    const embeddedURL = new URL(`http://${embeddedString}`)
-
-    const id = embeddedURL.searchParams.get("id")
-    if (!id) throw "Invalid embeddedUrl"
-
-    const { iv, sKey, dKey, data } = await getKeys(embeddedURL)
-
-    const decodedData = decrypt(data, sKey, iv)
-    const queryPart = decodedData.slice(decodedData.indexOf("&") + 1)
-
-    const host = "https://" + embeddedURL.host
-    const eId = encrypt(id, sKey, iv)
-
-    const params = new URLSearchParams(queryPart)
-    const sourcesUrl =
-        host +
-        "/encrypt-ajax.php?id=" +
-        encodeURIComponent(eId) +
-        "&" +
-        params.toString() +
-        `&alias=${id}`
-
-    const headers = new Headers()
-    headers.set("X-Requested-With", "XMLHttpRequest")
-    headers.set("Referer", embeddedURL.toString())
-
-    const resp: { data: string } = await fetch(sourcesUrl, { headers }).then(
-        res => res.json()
-    )
-    const sources_decrypted = decrypt(resp.data, dKey, iv)
-
-    const sources: Source = JSON.parse(sources_decrypted)
-    const hlsUrls = [
-        ...sources.source.filter(s => s.type == "hls").map(s => s.file),
-        ...sources.source_bk.filter(s => s.type == "hls").map(s => s.file),
-    ]
-    const response = await Promise.all(
-        hlsUrls.map(async url => await getSources(url))
+    const embeddedSources = basePage.querySelectorAll(
+        ".anime_muti_link>ul>li>a"
     )
 
-    const link_expires = params.get("expires")
-    const expire = link_expires
-        ? parseInt(link_expires) - Math.round(new Date().getTime() / 1000)
-        : 7200
+    for (let i = 0; i < embeddedSources.length; i++) {
+        const embeddedString = embeddedSources[i].getAttribute("data-video")
+        if (!embeddedString) continue
+        const embeddedURL = new URL(embeddedString)
 
-    return { response, expire }
+        const id = embeddedURL.searchParams.get("id")
+        if (!id) throw "Missing id from embedded URL"
+
+        const keys = await getKeys(embeddedURL)
+        if (!keys) throw "Failed to get keys from embeddedUrl."
+
+        const { iv, sKey, dKey, data } = keys
+
+        const decodedData = decrypt(data, sKey, iv)
+        const queryPart = decodedData.slice(decodedData.indexOf("&") + 1)
+
+        const host = "https://" + embeddedURL.host
+        const eId = encrypt(id, sKey, iv)
+
+        const params = new URLSearchParams(queryPart)
+        const sourcesUrl =
+            host +
+            "/encrypt-ajax.php?id=" +
+            encodeURIComponent(eId) +
+            "&" +
+            params.toString() +
+            `&alias=${id}`
+
+        const headers = new Headers()
+        headers.set("X-Requested-With", "XMLHttpRequest")
+        headers.set("Referer", embeddedURL.toString())
+
+        const resp: { data: string } = await fetch(sourcesUrl, {
+            headers,
+        }).then(res => res.json())
+        const sources_decrypted = decrypt(resp.data, dKey, iv)
+
+        const sources: Source = JSON.parse(sources_decrypted)
+
+        const hlsUrls = [
+            ...sources.source.filter(s => s.type == "hls").map(s => s.file),
+            ...sources.source_bk.filter(s => s.type == "hls").map(s => s.file),
+        ]
+        const response = await Promise.all(
+            hlsUrls.map(async url => await getSources(url))
+        )
+
+        const link_expires = params.get("expires")
+        const expire = link_expires
+            ? parseInt(link_expires) - Math.round(new Date().getTime() / 1000)
+            : 7200
+
+        return { response, expire }
+    }
+    throw "Failed to extract url"
 }
 
 const getSources = async (m3u8Url: string) => {
