@@ -18,8 +18,8 @@ const getQualities = async (d_source: DecryptedSource) => {
         qualities: parser.manifest.playlists
             .sort((a: M3U8Playlist, b: M3U8Playlist) =>
                 a.attributes.RESOLUTION.height < b.attributes.RESOLUTION.height
-                    ? 1
-                    : -1
+                    ? -1
+                    : 1
             )
             .map((p: M3U8Playlist) => ({
                 url: `${host}/${p.uri}`,
