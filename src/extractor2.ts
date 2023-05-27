@@ -57,7 +57,13 @@ const getSources = async (sourceId: string) => {
         backupSource: await Promise.all(
             d_backups.map(async s => await getQualities(s))
         ),
-        tracks: sources.tracks,
+        tracks: sources.tracks.map(t => ({
+            src: t.file,
+            kind: t.kind || "captions",
+            srcLang: t.label,
+            label: t.label,
+            default: t.default,
+        })),
         intro: {
             start: sources.intro?.start || -1,
             end: sources.intro?.end || -1,
