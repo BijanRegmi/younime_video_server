@@ -1,22 +1,12 @@
 import { createCipheriv, createDecipheriv } from "crypto"
 import { JSDOM } from "jsdom"
+
 const m3u8 = require("m3u8-parser")
 
 interface Source {
     source: { file: string; label: string; type: string }[]
     source_bk: { file: string; label: string; type: string }[]
     track: { tracks: { file: string; kind: string }[] }
-}
-
-interface Playlist {
-    attributes: {
-        NAME: string
-        RESOLUTION: { width: number; height: number }
-        BANDWIDTH: number
-        "PROGRAM-ID": number
-    }
-    uri: string
-    timeline: number
 }
 
 const getKeys = async (serverUrl: URL) => {
@@ -128,7 +118,7 @@ const getSources = async (m3u8Url: string) => {
     const host = m3u8Url.slice(0, m3u8Url.lastIndexOf("/"))
 
     const src: { url: string; name: string } = parser.manifest.playlists.map(
-        (p: Playlist) => ({
+        (p: M3U8Playlist) => ({
             url: `${host}/${p.uri}`,
             name: p.attributes.NAME,
         })
