@@ -1,141 +1,95 @@
-import { createDecipheriv } from "crypto"
-
-const EVP_BytesToKey = require("evp_bytestokey")
-const m3u8 = require("m3u8-parser")
-
 import { JSDOM } from "jsdom"
+import { RapidExtractor } from "./rapidExtractor"
 
-const getQualities = async (d_source: DecryptedSource) => {
-    const parser = new m3u8.Parser()
-    const manifest = await fetch(d_source.file).then(r => r.text())
-    parser.push(manifest)
-
-    const host = d_source.file.slice(0, d_source.file.lastIndexOf("/"))
-
-    const response: VideoSource = {
-        name: d_source.name,
-        type: d_source.type,
-        qualities: parser.manifest.playlists
-            .sort((a: M3U8Playlist, b: M3U8Playlist) =>
-                a.attributes.RESOLUTION.height < b.attributes.RESOLUTION.height
-                    ? -1
-                    : 1
-            )
-            .map((p: M3U8Playlist) => ({
-                url: `${host}/${p.uri}`,
-                name: `${p.attributes.RESOLUTION.height}p`,
-            })),
-    }
-
-    return response
+export const emptyAnimResource = {
+    source: [],
+    tracks: [],
+    intro: { start: -1, end: -1 },
+    outro: { start: -1, end: -1 },
 }
 
-const getSources = async (sourceId: string) => {
-    const sourceUrl = `https://rapid-cloud.co/ajax/embed-6/getSources?id=${sourceId}`
-
-    const sources: ServerSourceResponse = await fetch(sourceUrl)
-        .then(res => res.json())
-        .catch(console.error)
-    if (!sources) throw { custom: true, message: "Failed to get sources" }
-
-    //////////////////////////////////////////////////////////////////////////////////
-
-    let d_sources: DecryptedSource[] =
-        typeof sources.sources == "string"
-            ? await decipher<DecryptedSource[]>(sources.sources)
-            : sources.sources
-
-    let d_backups: DecryptedSource[] =
-        typeof sources.sourcesBackup == "string"
-            ? await decipher<DecryptedSource[]>(sources.sourcesBackup)
-            : sources.sourcesBackup
-
-    const response: AnimeResource = {
-        source: await Promise.all(
-            d_sources.map(async s => await getQualities(s))
-        ),
-        backupSource: await Promise.all(
-            d_backups.map(async s => await getQualities(s))
-        ),
-        tracks: sources.tracks.map(t => ({
-            src: t.file,
-            kind: t.kind || "captions",
-            srcLang: t.label,
-            label: t.label,
-            default: t.default,
-        })),
-        intro: {
-            start: sources.intro?.start || -1,
-            end: sources.intro?.end || -1,
-        },
-        outro: {
-            start: sources.outro?.start || -1,
-            end: sources.outro?.end || -1,
-        },
-    }
-
-    return response
+const headers = {
+    "X-Requested-With": "XMLHttpRequest",
+    referer: process.env.REFERRER || "",
 }
 
-const getSourceId = async (serverId: string) => {
+const getEmbedLinks = async (serverId: string | null) => {
+    if (!serverId) return
     const epSourceUrl = `${process.env.SOURCES_URL}${serverId}`
 
-    const embedResp: { link: string } | undefined = await fetch(epSourceUrl)
-        .then(res => res.json())
+    console.log(`==> Fetching sources: ${epSourceUrl}`)
+    const embedResp = await fetch(epSourceUrl, { headers })
+        .then(res => res.json() as Promise<{ link: string }>)
         .catch(console.error)
-    if (!embedResp) throw { custom: true, message: "Failed to get sources" }
 
-    const _sourceUrl = new URL(embedResp.link).pathname.split("/")
-    return _sourceUrl[_sourceUrl.length - 1]
+    if (!embedResp)
+        throw { custom: true, message: "Failed to get sources", epSourceUrl }
+
+    return embedResp.link
 }
 
-const getServerIds = async (id: number) => {
+const getServers = async (id: number) => {
     const serverUrl = `${process.env.SERVERS_URL}${id}`
 
-    const serverResp: { status: Boolean; html: string } | undefined =
-        await fetch(serverUrl)
-            .then(res => res.json())
-            .catch(console.error)
-    if (!serverResp) throw { custom: true, message: "Failed to get servers" }
+    console.log(`==> Fetching servers: ${serverUrl}`)
+    const serverResp = await fetch(serverUrl, { headers })
+        .then(res => res.json() as Promise<{ status: Boolean; html: string }>)
+        .catch(console.error)
+
+    if (!serverResp)
+        throw { custom: true, message: "Failed to get servers", serverUrl }
 
     //////////////////////////////////////////////////////////////////////////////////
 
     const dom = new JSDOM(serverResp.html).window.document
-    const subServers = Array.from(
-        dom.querySelectorAll(".servers-sub .server-item")
-    ).map(s => s?.getAttribute("data-id"))
-    const dubServers = Array.from(
-        dom.querySelectorAll(".servers-dub .server-item")
-    ).map(s => s?.getAttribute("data-id"))
 
-    return { sub: subServers[0], dub: dubServers[0] }
+    const subServerElements = Array.from(
+        dom.querySelectorAll(".servers-sub .server-item")
+    )
+    const dubServerElements = Array.from(
+        dom.querySelectorAll(".servers-dub .server-item")
+    )
+
+    const subServers = subServerElements.map(s => {
+        return {
+            id: s.getAttribute("data-id"),
+            name: s.textContent?.trim(),
+        }
+    })
+    const dubServers = dubServerElements.map(s => {
+        return {
+            id: s.getAttribute("data-id"),
+            name: s.textContent?.trim(),
+        }
+    })
+
+    return { subServers, dubServers }
 }
 
 export const VideoFromEpId = async (id: number) => {
-    const serverIds = await getServerIds(id)
+    const { subServers, dubServers } = await getServers(id)
+    console.log({ subServers, dubServers })
+
+    const embeds = {
+        subSources: await Promise.all(subServers.map(s => getEmbedLinks(s.id))),
+        dubSources: await Promise.all(dubServers.map(d => getEmbedLinks(d.id))),
+    }
+    console.log(embeds)
+
+    const subRapid = embeds.subSources.find(r =>
+        r?.toLowerCase().includes("rapid")
+    )
+    const dubRapid = embeds.dubSources.find(r =>
+        r?.toLowerCase().includes("rapid")
+    )
+    console.log({ subRapid, dubRapid })
 
     return {
-        sub: serverIds.sub
-            ? await getSources(await getSourceId(serverIds.sub))
-            : undefined,
-        dub: serverIds.dub
-            ? await getSources(await getSourceId(serverIds.dub))
-            : undefined,
+        sub: subRapid
+            ? await new RapidExtractor(subRapid).extract()
+            : emptyAnimResource,
+        dub: dubRapid
+            ? await new RapidExtractor(dubRapid).extract()
+            : emptyAnimResource,
     }
-}
-
-const decipher = async <T>(str: string) => {
-    const password = await fetch(process.env.PASSWORD_URL as string).then(res =>
-        res.text()
-    )
-    const sources = Buffer.from(str, "base64")
-
-    const salt = sources.subarray(8, 16)
-    const ciphered = sources.subarray(16, sources.length)
-
-    const result = EVP_BytesToKey(password, salt, 32 * 8, 16)
-    let decipher = createDecipheriv("aes-256-cbc", result.key, result.iv)
-    const decoded = Buffer.concat([decipher.update(ciphered), decipher.final()])
-    const json: T = JSON.parse(decoded.toString("utf8")) as T
-    return json
 }

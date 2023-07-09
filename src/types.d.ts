@@ -11,7 +11,7 @@ interface VideoSource {
 
 interface AnimeResource {
     source: VideoSource[]
-    backupSource: VideoSource[]
+    backupSource?: VideoSource[]
     tracks: Track[]
     intro: { start: number; end: number }
     outro: { start: number; end: number }
@@ -41,11 +41,11 @@ type Track = {
 }
 
 interface ServerSourceResponse {
-    sources: EncryptedSource | DecryptedSource[]
-    sourcesBackup: EncryptedSource | DecryptedSource[]
-    tracks: { file: string; label: string; kind: string; default?: boolean }[]
-    encrypted: Boolean
+    sources?: EncryptedSource | DecryptedSource[]
+    sourcesBackup?: EncryptedSource | DecryptedSource[]
+    tracks?: { file: string; label: string; kind: string; default?: boolean }[]
+    encrypted?: Boolean
     intro?: { start: number; end: number }
     outro?: { start: number; end: number }
-    server: number
+    server?: number
 }
