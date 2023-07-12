@@ -1,0 +1,16 @@
+version: "3"
+
+services:
+    rediscache:
+        image: redis:6.2-alpine
+        restart: always
+        ports:
+            - "6379:6379"
+        command: redis-server
+    younime-video-server:
+        depends_on:
+            - rediscache
+        build: .
+        env_file: ./.env
+        ports:
+            - "5891:5891"
