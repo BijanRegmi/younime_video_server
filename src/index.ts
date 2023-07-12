@@ -1,10 +1,10 @@
+import { config } from "dotenv"
+config()
+
 import express from "express"
 import { videosFromUrl } from "./extractor"
-import { config } from "dotenv"
 import { redisClient } from "./redis"
 import { VideoFromEpId } from "./extractor2"
-
-config()
 
 const app = express()
 const port = 5891
