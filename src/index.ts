@@ -61,6 +61,8 @@ app.get("/e2", async (req, res) => {
         })
 })
 
+app.get("*", (_, res) => res.send("Nothing here"))
+
 app.listen(port, async () => {
     await redisClient
         .connect()

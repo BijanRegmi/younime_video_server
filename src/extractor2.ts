@@ -84,12 +84,14 @@ export const VideoFromEpId = async (id: number) => {
     )
     console.log({ subRapid, dubRapid })
 
+    const extractor = await new RapidExtractor().init()
+
     return {
         sub: subRapid
-            ? await new RapidExtractor(subRapid).extract()
+            ? await extractor.loadUrl(subRapid).extract()
             : emptyAnimResource,
         dub: dubRapid
-            ? await new RapidExtractor(dubRapid).extract()
+            ? await extractor.loadUrl(dubRapid).extract()
             : emptyAnimResource,
     }
 }

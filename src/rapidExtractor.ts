@@ -5,14 +5,22 @@ const EVP_BytesToKey = require("evp_bytestokey")
 const m3u8 = require("m3u8-parser")
 
 export class RapidExtractor {
-    embedUrl: URL
-    constructor(url: string) {
+    embedUrl: URL | undefined
+    key: string = ""
+
+    async init(url?: string) {
+        this.key = (await this._getdecryptKey()) || ""
+        if (url) this.embedUrl = new URL(url)
+        return this
+    }
+
+    loadUrl(url: string) {
         this.embedUrl = new URL(url)
+        return this
     }
 
     async extract(): Promise<AnimeResource> {
-        const key = await this._getdecryptKey()
-        if (!key) return emptyAnimResource
+        if (!this.key || !this.embedUrl) return emptyAnimResource
 
         const origin = this.embedUrl.origin
         const id = this.embedUrl.pathname.split("/").pop()
@@ -31,7 +39,7 @@ export class RapidExtractor {
             response.sources
         ) {
             decryptedSources = JSON.parse(
-                await this.decipher(response.sources as string, key)
+                await this.decipher(response.sources as string, this.key)
             )
         } else if (!response.sources) {
             decryptedSources = []
