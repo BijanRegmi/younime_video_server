@@ -7,7 +7,7 @@ import { redisClient } from "./redis"
 import { VideoFromEpId } from "./extractor2"
 
 const app = express()
-const port = 5891
+const port = Number(process.env.PORT) || 5891
 
 app.use((req, _res, next) => {
     console.log(`==> ${req.method} ${req.originalUrl}`)
