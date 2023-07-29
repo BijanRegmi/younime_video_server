@@ -76,11 +76,15 @@ export const VideoFromEpId = async (id: number) => {
     }
     console.log(embeds)
 
-    const subRapid = embeds.subSources.find(r =>
-        r?.toLowerCase().includes("rapid")
+    const subRapid = embeds.subSources.find(
+        r =>
+            r?.toLowerCase().includes("rapid") ||
+            r?.toLowerCase().includes("megacloud")
     )
-    const dubRapid = embeds.dubSources.find(r =>
-        r?.toLowerCase().includes("rapid")
+    const dubRapid = embeds.dubSources.find(
+        r =>
+            r?.toLowerCase().includes("rapid") ||
+            r?.toLowerCase().includes("megacloud")
     )
     console.log({ subRapid, dubRapid })
 

@@ -1,15 +1,22 @@
 import { createDecipheriv } from "crypto"
 import { emptyAnimResource } from "./extractor2"
+import CryptoJS from "crypto-js"
 
 const EVP_BytesToKey = require("evp_bytestokey")
 const m3u8 = require("m3u8-parser")
 
 export class RapidExtractor {
     embedUrl: URL | undefined
-    key: string = ""
+    keys: number[][][] = []
+
+    serverUrls = ["https://megacloud.tv", "https://rapid-cloud.co"]
+    sourcesUrls = [
+        "/embed-2/ajax/e-1/getSources?id=",
+        "/ajax/embed-6-v2/getSources?id=",
+    ]
 
     async init(url?: string) {
-        this.key = (await this._getdecryptKey()) || ""
+        this.keys = await this._getdecryptKey()
         if (url) this.embedUrl = new URL(url)
         return this
     }
@@ -20,31 +27,31 @@ export class RapidExtractor {
     }
 
     async extract(): Promise<AnimeResource> {
-        if (!this.key || !this.embedUrl) return emptyAnimResource
+        const type = this.embedUrl?.hostname.includes("megacloud") ? 0 : 1
+        if (!this.keys[type] || !this.embedUrl) return emptyAnimResource
 
-        const origin = this.embedUrl.origin
         const id = this.embedUrl.pathname.split("/").pop()
-        const jsonLink = `${origin}/ajax/embed-6/getSources?id=${id}`
-        console.log(`==> Extracting m3u8 url: ${jsonLink}`)
-        const response = await fetch(jsonLink)
+        const resourceUrl = `${this.serverUrls[type]}${this.sourcesUrls[type]}${id}`
+        console.log(`==> Fetching resources from: ${resourceUrl}`)
+        const resource = await fetch(resourceUrl)
             .then(res => res.json() as ServerSourceResponse)
             .catch(console.error)
 
-        if (!response) return emptyAnimResource
+        if (!resource) return emptyAnimResource
 
         let decryptedSources: DecryptedSource[]
 
         if (
-            (response.encrypted || typeof response.sources == "string") &&
-            response.sources
+            (resource.encrypted || typeof resource.sources == "string") &&
+            resource.sources
         ) {
             decryptedSources = JSON.parse(
-                await this.decipher(response.sources as string, this.key)
+                await this.decipher(resource.sources as string)
             )
-        } else if (!response.sources) {
+        } else if (!resource.sources) {
             decryptedSources = []
         } else {
-            decryptedSources = response.sources as DecryptedSource[]
+            decryptedSources = resource.sources as DecryptedSource[]
         }
 
         const retval: AnimeResource = {
@@ -55,7 +62,7 @@ export class RapidExtractor {
             tracks:
                 decryptedSources == undefined
                     ? []
-                    : response.tracks?.map(t => ({
+                    : resource.tracks?.map(t => ({
                           src: t.file,
                           kind: t.kind || "captions",
                           srcLang: t.label,
@@ -63,14 +70,15 @@ export class RapidExtractor {
                           default: t.default,
                       })) || [],
             intro: {
-                start: response.intro?.start || -1,
-                end: response.intro?.end || -1,
+                start: resource.intro?.start || -1,
+                end: resource.intro?.end || -1,
             },
             outro: {
-                start: response.outro?.start || -1,
-                end: response.intro?.end || -1,
+                start: resource.outro?.start || -1,
+                end: resource.intro?.end || -1,
             },
         }
+        console.log("=> Fetched resources", retval)
         return retval
     }
 
@@ -100,26 +108,55 @@ export class RapidExtractor {
         return response
     }
 
-    async decipher(input: string, key: string) {
-        const sources = Buffer.from(input, "base64")
+    async decipher(input: string) {
+        for (let key of this.keys) {
+            try {
+                const inputArray = input.split("")
+                let extractedKey = ""
 
-        const salt = sources.subarray(8, 16)
-        const ciphered = sources.subarray(16, sources.length)
+                for (const index of key) {
+                    for (let i = index[0]; i < index[1]; i++) {
+                        extractedKey += inputArray[i]
+                        inputArray[i] = ""
+                    }
+                }
 
-        const result = EVP_BytesToKey(key, salt, 32 * 8, 16)
-        const decipher = createDecipheriv("aes-256-cbc", result.key, result.iv)
+                const sources = inputArray.join("")
 
-        const decoded = Buffer.concat([
-            decipher.update(ciphered),
-            decipher.final(),
-        ])
-
-        return decoded.toString("utf8")
+                return CryptoJS.AES.decrypt(sources, extractedKey).toString(
+                    CryptoJS.enc.Utf8
+                )
+            } catch (err) {
+                console.error("==> Deciphering failed with", key)
+                continue
+            }
+        }
+        console.error(
+            "==> Failed to decipher with all keys. Returing empty resource."
+        )
+        return "[]"
     }
 
     async _getdecryptKey() {
-        return await fetch(process.env.KEY_URL as string)
-            .then(res => res.text())
-            .catch(console.error)
+        return [
+            await fetch(process.env.KEY_URL_6 as string)
+                .then(res => res.json())
+                .catch(err => {
+                    console.error(err)
+                    return ""
+                }),
+            await fetch(process.env.KEY_URL_4 as string)
+                .then(res => res.json())
+                .catch(err => {
+                    console.error(err)
+                    return ""
+                }),
+            await fetch(process.env.KEY_URL_0 as string)
+                .then(res => res.json())
+                .catch(err => {
+                    console.error(err)
+                    return ""
+                }),
+        ]
     }
 }
